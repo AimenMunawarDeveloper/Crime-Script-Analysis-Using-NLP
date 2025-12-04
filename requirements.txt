@@ -4,4 +4,6 @@ nltk>=3.6
 spacy>=3.4.0
 gensim>=4.0.0
 scikit-learn>=1.0.0
+matplotlib>=3.5.0
+networkx>=2.6.0
 
