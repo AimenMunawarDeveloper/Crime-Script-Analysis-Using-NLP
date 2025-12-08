@@ -6,4 +6,6 @@ gensim>=4.0.0
 scikit-learn>=1.0.0
 matplotlib>=3.5.0
 networkx>=2.6.0
+sentence-transformers>=2.2.0
+torch>=1.9.0
 

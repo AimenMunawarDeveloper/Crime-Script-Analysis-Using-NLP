@@ -13,6 +13,7 @@ from similarity_measures import SimilarityMeasures
 from tfidf_extraction import TFIDFExtractor
 from clustering import ScamClustering
 from temporal_ordering import TemporalOrdering
+from transformer_embeddings import TransformerEmbeddings, EmbeddingComparison
 
 
 def main():
@@ -157,7 +158,100 @@ def main():
     
     print()
     
-    print("STEP 7: Clustering Similar Scams")
+    print("STEP 7: Generating Transformer Embeddings")
+    print("-" * 60)
+    
+    # Initialize variables for transformer embeddings
+    transformer_available = False
+    transformer_similarity_matrix = None
+    transformer_embeddings = None
+    transformer_embeddings_path = None
+    transformer_similarity_path = None
+    comparison_path = None
+    
+    try:
+        # Initialize transformer model (using MiniLM for faster processing)
+        # Can be changed to 'mpnet' for better quality but slower processing
+        transformer = TransformerEmbeddings(
+            model_name='minilm',
+            batch_size=32,
+            show_progress=True
+        )
+        
+        # Use preprocessed text for transformer embeddings
+        transformer_texts = df_processed[training_text_column].fillna('').astype(str).tolist()
+        
+        # Generate transformer embeddings
+        transformer_embeddings = transformer.generate_embeddings(transformer_texts, normalize=True)
+        print(f"Generated transformer embeddings: {transformer_embeddings.shape}")
+        
+        # Save transformer embeddings
+        transformer_embeddings_path = os.path.join(RESULTS_DIR, "scam_transformer_embeddings.csv")
+        transformer.save_embeddings(transformer_embeddings, transformer_embeddings_path, doc_ids)
+        
+        # Compute transformer similarity matrix
+        transformer_similarity_matrix = transformer.compute_similarity_matrix(transformer_embeddings)
+        
+        # Save transformer similarity matrix
+        transformer_similarity_path = os.path.join(RESULTS_DIR, "scam_transformer_similarity_matrix.csv")
+        transformer.save_similarity_matrix(
+            transformer_similarity_matrix,
+            transformer_similarity_path,
+            doc_ids
+        )
+        
+        print()
+        
+        print("STEP 7b: Comparing Embedding Methods")
+        print("-" * 60)
+        
+        # Compare all three methods
+        comparison = EmbeddingComparison()
+        comparison_df = comparison.compare_similarity_matrices(
+            transformer_similarity_matrix,
+            cosine_similarity_matrix,
+            jaccard_similarity_matrix,
+            doc_ids
+        )
+        
+        # Save comparison results
+        comparison_path = os.path.join(RESULTS_DIR, "scam_embedding_comparison.csv")
+        comparison.save_comparison_results(comparison_df, comparison_path)
+        
+        # Find agreement pairs (documents that all three methods agree are similar)
+        print("\nFinding high-agreement document pairs...")
+        agreement_pairs = comparison.find_agreement_pairs(
+            transformer_similarity_matrix,
+            cosine_similarity_matrix,
+            jaccard_similarity_matrix,
+            doc_ids,
+            threshold=0.7,
+            top_n=20
+        )
+        
+        if len(agreement_pairs) > 0:
+            agreement_path = os.path.join(RESULTS_DIR, "scam_agreement_pairs.csv")
+            agreement_pairs.to_csv(agreement_path, index=False)
+            print(f"Agreement pairs saved to {agreement_path}")
+        
+        transformer_available = True
+        
+    except ImportError as e:
+        print(f"Warning: Transformer embeddings not available: {e}")
+        print("Skipping transformer embeddings step. Install sentence-transformers to enable.")
+        transformer_available = False
+        transformer_similarity_matrix = None
+        transformer_embeddings = None
+    except Exception as e:
+        print(f"Error generating transformer embeddings: {e}")
+        print("Continuing with other methods...")
+        transformer_available = False
+        transformer_similarity_matrix = None
+        transformer_embeddings = None
+    
+    print()
+    
+    print("STEP 8: Clustering Similar Scams")
     print("-" * 60)
     
     clustering = ScamClustering()
@@ -185,7 +279,7 @@ def main():
     
     print()
     
-    print("STEP 8: Extracting Key Terms from Similar Scams")
+    print("STEP 9: Extracting Key Terms from Similar Scams")
     print("-" * 60)
     
     tfidf_extractor = TFIDFExtractor(
@@ -231,7 +325,7 @@ def main():
     
     print()
     
-    print("STEP 9: Generating Crime Scripts (Temporal Ordering)")
+    print("STEP 10: Generating Crime Scripts (Temporal Ordering)")
     print("-" * 60)
     
     temporal_ordering = TemporalOrdering()
@@ -312,7 +406,7 @@ def main():
     
     print()
     
-    print("STEP 10: Summary Statistics")
+    print("STEP 11: Summary Statistics")
     print("-" * 60)
     
     np.fill_diagonal(cosine_similarity_matrix, -1)
@@ -338,6 +432,13 @@ def main():
     print(f"  - Min: {jaccard_similarity_matrix.min():.4f}")
     print(f"  - Max: {jaccard_similarity_matrix.max():.4f}")
     
+    if transformer_available and transformer_similarity_matrix is not None:
+        print(f"\nTransformer similarity matrix statistics:")
+        print(f"  - Mean: {transformer_similarity_matrix.mean():.4f}")
+        print(f"  - Std: {transformer_similarity_matrix.std():.4f}")
+        print(f"  - Min: {transformer_similarity_matrix.min():.4f}")
+        print(f"  - Max: {transformer_similarity_matrix.max():.4f}")
+    
     print(f"\nClustering statistics:")
     print(f"  - Total clusters: {cluster_df['cluster_id'].nunique()}")
     print(f"  - Average cluster size: {cluster_df['cluster_size'].mean():.2f}")
@@ -353,6 +454,10 @@ def main():
     print(f"  - Embeddings: {embeddings_path}")
     print(f"  - Cosine similarity matrix: {cosine_similarity_path}")
     print(f"  - Jaccard similarity matrix: {jaccard_similarity_path}")
+    if transformer_available:
+        print(f"  - Transformer embeddings: {transformer_embeddings_path}")
+        print(f"  - Transformer similarity matrix: {transformer_similarity_path}")
+        print(f"  - Embedding comparison: {comparison_path}")
     print(f"  - Cluster assignments: {cluster_path}")
     print(f"  - Cluster statistics: {cluster_stats_path}")
     if all_key_terms is not None:
