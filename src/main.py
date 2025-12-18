@@ -302,11 +302,44 @@ def main():
         print(f"Crime scripts saved to {crime_scripts_path}")
         
         if all_key_terms is not None:
-            print("\nGenerating sequence visualizations for smallest cluster...")
+            print("\nGenerating sequence visualizations for a medium-sized cluster...")
             os.makedirs(os.path.join(RESULTS_DIR, "visualizations"), exist_ok=True)
             viz_dir = os.path.join(RESULTS_DIR, "visualizations")
             
-            top_clusters = cluster_stats.tail(1)['cluster_id'].tolist()
+            # Pick a "medium-sized" (near-median) cluster that is eligible for visualization.
+            # Eligibility criteria:
+            # - Has a generated crime script (present in all_crime_scripts)
+            # - Has key terms with a 'next_term' column (required for visualize_sequence_graph)
+            eligible_cluster_stats = cluster_stats.copy()
+            script_cluster_ids = set(all_crime_scripts['cluster_id'].unique().tolist())
+            eligible_cluster_stats = eligible_cluster_stats[
+                eligible_cluster_stats['cluster_id'].isin(script_cluster_ids)
+            ]
+
+            if 'next_term' in all_key_terms.columns:
+                # Prefer clusters that have at least one non-null next_term
+                key_term_cluster_ids = set(
+                    all_key_terms.loc[all_key_terms['next_term'].notna(), 'cluster_id']
+                    .unique()
+                    .tolist()
+                )
+                eligible_cluster_stats = eligible_cluster_stats[
+                    eligible_cluster_stats['cluster_id'].isin(key_term_cluster_ids)
+                ]
+
+            if len(eligible_cluster_stats) == 0:
+                # Fallback: use any cluster with scripts, closest to median size in cluster_stats
+                eligible_cluster_stats = cluster_stats[
+                    cluster_stats['cluster_id'].isin(script_cluster_ids)
+                ].copy()
+
+            if len(eligible_cluster_stats) == 0:
+                top_clusters = []
+            else:
+                median_size = eligible_cluster_stats['num_documents'].median()
+                chosen_idx = (eligible_cluster_stats['num_documents'] - median_size).abs().idxmin()
+                chosen_cluster_id = int(eligible_cluster_stats.loc[chosen_idx, 'cluster_id'])
+                top_clusters = [chosen_cluster_id]
             viz_count = 0
             
             for idx, cluster_id in enumerate(top_clusters, 1):
