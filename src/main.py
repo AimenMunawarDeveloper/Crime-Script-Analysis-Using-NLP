@@ -1,16 +1,24 @@
 import os
 import pandas as pd
 import numpy as np
-from preprocessing import TextPreprocessor
-from doc2vec_model import Doc2VecModel
-from similarity_measures import SimilarityMeasures
-from tfidf_extraction import TFIDFExtractor
-from clustering import ScamClustering
-from temporal_ordering import TemporalOrdering
-from transformer_embeddings import TransformerEmbeddings, EmbeddingComparison
+from secure_reports import (
+    decrypt_and_verify_packages,
+    load_private_key_json,
+    load_secure_reports_jsonl,
+)
 
 
 def main():
+    # Heavy NLP imports are deferred so the secure-report gate can run even if
+    # the current Python environment lacks spaCy / transformer deps.
+    from preprocessing import TextPreprocessor
+    from doc2vec_model import Doc2VecModel
+    from similarity_measures import SimilarityMeasures
+    from tfidf_extraction import TFIDFExtractor
+    from clustering import ScamClustering
+    from temporal_ordering import TemporalOrdering
+    from transformer_embeddings import TransformerEmbeddings, EmbeddingComparison
+
     script_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(script_dir)
     
@@ -34,16 +42,40 @@ def main():
     preprocessor = TextPreprocessor()
     
     dataset_path = os.path.join(DATA_DIR, "scam_raw_dataset.csv")
+    secure_reports_path = os.path.join(DATA_DIR, "secure_reports.jsonl")
+    server_priv_path = os.path.join(DATA_DIR, "server_rsa_private.json")
     
-    if not os.path.exists(dataset_path):
-        print(f"Error: Raw dataset not found at {dataset_path}")
-        print("Please place 'scam_raw_dataset.csv' in the Data Set/ directory")
-        print("This should be the raw extracted dataset before any preprocessing")
-        return
-    
-    print(f"Found raw dataset: {dataset_path}")
-    
-    df = preprocessor.load_dataset(dataset_path, text_column='incident_description')
+    df = None
+    if os.path.exists(secure_reports_path) and os.path.exists(server_priv_path):
+        print(f"Found secure report packages: {secure_reports_path}")
+        print("Decrypting + verifying signatures before NLP processing...")
+        try:
+            packages = load_secure_reports_jsonl(secure_reports_path)
+            server_priv = load_private_key_json(server_priv_path)
+            verified_rows, verified_count, total_count = decrypt_and_verify_packages(
+                packages, server_priv
+            )
+            print(f"Verified {verified_count}/{total_count} secure reports")
+            if verified_count == 0:
+                print("Error: No secure reports verified. Aborting.")
+                return
+            df = pd.DataFrame(
+                {
+                    "submission_id": [r["report_id"] for r in verified_rows],
+                    "incident_description": [r["plaintext"] for r in verified_rows],
+                }
+            )
+        except Exception as e:
+            print(f"Error processing secure reports: {e}")
+            return
+    else:
+        if not os.path.exists(dataset_path):
+            print(f"Error: Raw dataset not found at {dataset_path}")
+            print("Please place 'scam_raw_dataset.csv' in the Data Set/ directory")
+            print("This should be the raw extracted dataset before any preprocessing")
+            return
+        print(f"Found raw dataset: {dataset_path}")
+        df = preprocessor.load_dataset(dataset_path, text_column='incident_description')
     
     text_col = getattr(preprocessor, 'detected_text_column', 'incident_description')
     
