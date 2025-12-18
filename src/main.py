@@ -302,14 +302,15 @@ def main():
         print(f"Crime scripts saved to {crime_scripts_path}")
         
         if all_key_terms is not None:
-            print("\nGenerating sequence visualizations for top clusters...")
+            print("\nGenerating sequence visualizations for top 3 clusters...")
             os.makedirs(os.path.join(RESULTS_DIR, "visualizations"), exist_ok=True)
             viz_dir = os.path.join(RESULTS_DIR, "visualizations")
             
-            top_clusters = cluster_stats.head(10)['cluster_id'].tolist()
+            top_clusters = cluster_stats.head(3)['cluster_id'].tolist()
             viz_count = 0
             
-            for cluster_id in top_clusters:
+            for idx, cluster_id in enumerate(top_clusters, 1):
+                print(f"  Generating visualization {idx}/3 for cluster {cluster_id}...")
                 cluster_scripts = all_crime_scripts[all_crime_scripts['cluster_id'] == cluster_id]
                 if len(cluster_scripts) > 0:
                     cluster_key_terms = all_key_terms[all_key_terms['cluster_id'] == cluster_id].copy()
@@ -325,8 +326,11 @@ def main():
                                 save_path=viz_path
                             )
                             viz_count += 1
+                            print(f"    ✓ Completed cluster {cluster_id}")
                         except Exception as e:
-                            print(f"  - Warning: Could not generate visualization for cluster {cluster_id}: {e}")
+                            print(f"    ✗ Warning: Could not generate visualization for cluster {cluster_id}: {e}")
+                else:
+                    print(f"    - Skipped cluster {cluster_id} (no scripts)")
             
             if viz_count > 0:
                 print(f"Generated {viz_count} sequence visualizations")
