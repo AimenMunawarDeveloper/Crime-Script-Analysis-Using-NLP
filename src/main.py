@@ -302,15 +302,15 @@ def main():
         print(f"Crime scripts saved to {crime_scripts_path}")
         
         if all_key_terms is not None:
-            print("\nGenerating sequence visualizations for top 3 clusters...")
+            print("\nGenerating sequence visualizations for top 5 clusters...")
             os.makedirs(os.path.join(RESULTS_DIR, "visualizations"), exist_ok=True)
             viz_dir = os.path.join(RESULTS_DIR, "visualizations")
             
-            top_clusters = cluster_stats.head(3)['cluster_id'].tolist()
+            top_clusters = cluster_stats.head(5)['cluster_id'].tolist()
             viz_count = 0
             
             for idx, cluster_id in enumerate(top_clusters, 1):
-                print(f"  Generating visualization {idx}/3 for cluster {cluster_id}...")
+                print(f"  Processing cluster {cluster_id} ({idx}/{len(top_clusters)})...", end=' ')
                 cluster_scripts = all_crime_scripts[all_crime_scripts['cluster_id'] == cluster_id]
                 if len(cluster_scripts) > 0:
                     cluster_key_terms = all_key_terms[all_key_terms['cluster_id'] == cluster_id].copy()
@@ -323,14 +323,15 @@ def main():
                                 next_term_column='next_term',
                                 weight_column='tfidf_score',
                                 figsize=(14, 10),
-                                save_path=viz_path
+                                save_path=viz_path,
+                                max_terms=25
                             )
                             viz_count += 1
-                            print(f"    ✓ Completed cluster {cluster_id}")
+                            print("✓")
                         except Exception as e:
-                            print(f"    ✗ Warning: Could not generate visualization for cluster {cluster_id}: {e}")
+                            print(f"✗ Error: {str(e)[:50]}")
                 else:
-                    print(f"    - Skipped cluster {cluster_id} (no scripts)")
+                    print("- (skipped, no scripts)")
             
             if viz_count > 0:
                 print(f"Generated {viz_count} sequence visualizations")

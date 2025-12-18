@@ -1,6 +1,8 @@
 import pandas as pd
 import numpy as np
 import networkx as nx
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import math
 from typing import List, Dict, Tuple, Optional
@@ -80,12 +82,16 @@ class TemporalOrdering:
                                 next_term_column: str = 'next_term',
                                 weight_column: str = 'tfidf_score',
                                 figsize: Tuple[int, int] = (12, 8),
-                                save_path: Optional[str] = None):
+                                save_path: Optional[str] = None,
+                                max_terms: int = 30):
         df = sequence_df.copy()
         
         if len(df) == 0:
             print("Warning: No data to visualize")
             return
+        
+        if len(df) > max_terms:
+            df = df.head(max_terms)
         
         score_last = df.iloc[len(df)-1].get(weight_column, 0.0)
         df_edges = df.iloc[:len(df)-1].copy()
@@ -103,7 +109,7 @@ class TemporalOrdering:
             next_term = row[next_term_column]
             weight = row.get(weight_column, 1.0)
             
-            if pd.notna(next_term) and next_term != '':
+            if pd.notna(next_term) and next_term != '' and next_term in term_to_score:
                 G.add_edge(term, next_term, weight=weight)
         
         if len(G.edges()) == 0:
@@ -144,9 +150,12 @@ class TemporalOrdering:
         plt.tight_layout()
         
         if save_path:
-            plt.savefig(save_path, dpi=300, bbox_inches='tight')
-            print(f"Sequence graph saved to {save_path}")
-            plt.close()
+            try:
+                plt.savefig(save_path, dpi=200, bbox_inches='tight', facecolor='white')
+                plt.close(fig)
+            except Exception as e:
+                plt.close(fig)
+                raise e
         else:
             plt.show()
     
