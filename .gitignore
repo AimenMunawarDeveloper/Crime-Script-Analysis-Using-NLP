@@ -23,6 +23,7 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
+.python-version
 
 # Virtual Environment
 venv/
@@ -52,12 +53,15 @@ venv.bak/
 
 # Trained Models directory (large files)
 Trained Models/*.model
+Trained Models/**/data/
+Trained Models/**/scam_transformer_model/
 
 # Analysis Results (generated files - entire directory)
 Analysis Results/
 
 # Data files (uncomment if you don't want to track raw data)
 # Data Set/*.csv
+Data Set/scam_data_preprocessed.csv
 
 # Environment variables
 .env

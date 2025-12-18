@@ -1,8 +1,3 @@
-"""
-Text Preprocessing Module
-Handles dataset loading, cleaning, normalization, and tokenization
-"""
-
 import pandas as pd
 import re
 import spacy
@@ -31,10 +26,8 @@ except OSError:
 
 
 class TextPreprocessor:
-    """Class for preprocessing scam report text data"""
     
     def __init__(self):
-        """Initialize the preprocessor with dictionaries for acronyms and misspellings"""
         self.acronym_dict = {
             'ICA': 'immigration and checkpoints authority',
             'ID': 'identity',
@@ -205,13 +198,11 @@ class TextPreprocessor:
         }
     
     def remove_url(self, text: str) -> str:
-        """Replace URL links with 'url_link' token"""
         regex = r"(?i)\b((?:https?://|www\d{0,3}[.]|[a-z0-9.\-]+[.][a-z]{2,4}/)(?:[^\s()<>]+|\(([^\s()<>]+|(\([^\s()<>]+\)))*\))+(?:\(([^\s()<>]+|(\([^\s()<>]+\)))*\)|[^\s`!()\[\]{};:'\".,<>?«»""'']))"
         text = re.sub(regex, "url_link", text)
         return text
     
     def decontract(self, phrase: str) -> str:
-        """Expand contractions in text"""
         phrase = re.sub(r"won\'t", "will not", phrase)
         phrase = re.sub(r"can\'t", "can not", phrase)
         phrase = re.sub(r"let\'s", "let us", phrase)
@@ -240,7 +231,6 @@ class TextPreprocessor:
         return phrase
     
     def remove_punct(self, text: str) -> str:
-        """Remove specified punctuation marks"""
         punctuation = "``-±!@#$%^&*()+?:;""'<>"
         for c in text:
             if c in punctuation:
@@ -248,7 +238,6 @@ class TextPreprocessor:
         return text
     
     def unabbreviate(self, text: str) -> str:
-        """Replace acronyms with their unabbreviated forms"""
         x = word_tokenize(text)
         for index, token in enumerate(x):
             for k, v in self.acronym_dict.items():
@@ -258,7 +247,6 @@ class TextPreprocessor:
         return ' '.join(x).replace(" .", ".").replace(" ,", ",")
     
     def correct_misspelled_words(self, text: str) -> str:
-        """Replace misspelled words with correctly-spelled forms"""
         x = word_tokenize(text)
         for index, token in enumerate(x):
             for k, v in self.spellcheck_dict.items():
@@ -268,14 +256,12 @@ class TextPreprocessor:
         return ' '.join(x).replace(' .', '.').replace(' ,', ',').replace('< ', '<').replace(' >', '>')
     
     def remove_stopwords(self, text_string: str) -> str:
-        """Remove stopwords from text"""
         word_list = [word for word in word_tokenize(text_string) 
                     if word not in set(stopwords.words('english'))]
         text = ' '.join(word_list).replace(' .', '').replace(' ,', '').replace('< ', '<').replace(' >', '>')
         return text
     
     def lemmatise(self, text_string: str) -> str:
-        """Lemmatize text using spaCy"""
         if nlp is None:
             return text_string
         list_of_tokens = [token.lemma_ for token in nlp(text_string)]
@@ -283,20 +269,6 @@ class TextPreprocessor:
         return text
     
     def preprocess(self, text: str) -> str:
-        """
-        Main preprocessing function that applies all preprocessing steps
-        
-        Steps:
-        1. Ignore ASCII encodings and decode as UTF-8
-        2. Replace URL links with 'url_link'
-        3. Add space after punctuation
-        4. Remove digits
-        5. Expand contractions
-        6. Convert to lowercase
-        7. Remove punctuation (except periods and commas)
-        8. Replace acronyms
-        9. Correct misspellings
-        """
         text = text.encode('ascii', 'ignore').decode('utf-8')
         
         text = self.remove_url(text.replace('\n', ' '))
@@ -318,22 +290,10 @@ class TextPreprocessor:
         return text
     
     def tokenize(self, text: str) -> List[str]:
-        """Tokenize preprocessed text"""
         return word_tokenize(text.lower())
     
     def load_dataset(self, filepath: str, text_column: str = 'incident_description', 
                     id_column: str = None) -> pd.DataFrame:
-        """
-        Load dataset from CSV file
-        
-        Args:
-            filepath: Path to CSV file
-            text_column: Name of column containing text data
-            id_column: Name of column containing document IDs (optional)
-        
-        Returns:
-            DataFrame with loaded data
-        """
         try:
             df = pd.read_csv(filepath)
             
@@ -373,17 +333,6 @@ class TextPreprocessor:
     
     def preprocess_dataset(self, df: pd.DataFrame, text_column: str = 'incident_description',
                           id_column: str = None) -> pd.DataFrame:
-        """
-        Preprocess entire dataset
-        
-        Args:
-            df: DataFrame containing text data
-            text_column: Name of column containing text to preprocess
-            id_column: Name of column containing document IDs
-        
-        Returns:
-            DataFrame with preprocessed text columns
-        """
         df = df.copy()
         
         df['preprocessed_text'] = ""
@@ -411,7 +360,5 @@ class TextPreprocessor:
         return df
     
     def save_preprocessed_data(self, df: pd.DataFrame, filepath: str):
-        """Save preprocessed dataset to CSV"""
         df.to_csv(filepath, index=False)
         print(f"Preprocessed data saved to {filepath}")
-

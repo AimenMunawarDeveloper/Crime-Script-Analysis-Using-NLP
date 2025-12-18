@@ -1,9 +1,3 @@
-"""
-Main script for Crime Script Analysis Using NLP
-Implements complete pipeline: preprocessing, Doc2Vec, similarity measures,
-TF-IDF extraction, clustering, and temporal ordering
-"""
-
 import os
 import pandas as pd
 import numpy as np
@@ -17,8 +11,6 @@ from transformer_embeddings import TransformerEmbeddings, EmbeddingComparison
 
 
 def main():
-    """Main function to run preprocessing and Doc2Vec training"""
-    
     script_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(script_dir)
     
@@ -32,7 +24,7 @@ def main():
     
     print("=" * 60)
     print("Crime Script Analysis Using NLP")
-    print("Preprocessing + Doc2Vec Implementation")
+    print("Preprocessing + Transformer Embeddings Implementation")
     print("=" * 60)
     print()
     
@@ -66,7 +58,7 @@ def main():
     
     print()
     
-    print("STEP 2: Preparing Corpus for Doc2Vec")
+    print("STEP 2: Preparing Corpus")
     print("-" * 60)
     
     training_text_column = 'lemmatised' if 'lemmatised' in df_processed.columns else 'preprocessed_text'
@@ -78,71 +70,60 @@ def main():
     
     texts = df_processed[training_text_column].fillna('').astype(str).tolist()
     
-    print(f"Prepared {len(texts)} documents for training")
+    print(f"Prepared {len(texts)} documents")
     print()
     
-    print("STEP 3: Training Doc2Vec Model")
+    print("STEP 3: Generating Transformer Embeddings (Primary Method)")
     print("-" * 60)
     
-    doc2vec = Doc2VecModel(
-        vector_size=50,
-        min_count=2,
-        epochs=100,
-        dm=1,
-        alpha=0.025,
-        min_alpha=0.00025
-    )
+    transformer = None
+    transformer_similarity_matrix = None
+    transformer_embeddings = None
+    transformer_model_path = None
+    transformer_embeddings_path = None
+    transformer_similarity_path = None
     
-    tagged_docs = doc2vec.create_tagged_documents(texts, doc_ids)
-    
-    doc2vec.train(tagged_docs, verbose=True)
-    
-    model_path = os.path.join(MODELS_DIR, "scam_doc2vec_model.model")
-    doc2vec.save_model(model_path)
-    
-    print()
-    
-    print("STEP 4: Generating Document Embeddings")
-    print("-" * 60)
-    
-    embeddings = doc2vec.generate_embeddings()
-    print(f"Generated embeddings: {embeddings.shape}")
-    print(f"  - Number of documents: {embeddings.shape[0]}")
-    print(f"  - Embedding dimension: {embeddings.shape[1]}")
-    
-    embeddings_path = os.path.join(RESULTS_DIR, "scam_document_embeddings.csv")
-    doc2vec.save_embeddings(embeddings, embeddings_path)
-    
-    embeddings_df = pd.DataFrame(embeddings, index=doc_ids)
-    embeddings_df.index.name = 'document_id'
-    embeddings_df.to_csv(embeddings_path)
-    print(f"Embeddings saved with document IDs to {embeddings_path}")
-    
-    print()
-    
-    print("STEP 5: Computing Cosine Similarity Matrix")
-    print("-" * 60)
-    
-    cosine_similarity_matrix = doc2vec.compute_similarity_matrix(embeddings)
-    print(f"Computed cosine similarity matrix: {cosine_similarity_matrix.shape}")
-    print(f"  - Similarity scores range: [{cosine_similarity_matrix.min():.4f}, {cosine_similarity_matrix.max():.4f}]")
-    print(f"  - Mean similarity: {cosine_similarity_matrix.mean():.4f}")
-    
-    cosine_similarity_path = os.path.join(RESULTS_DIR, "scam_cosine_similarity_matrix.csv")
-    doc2vec.save_similarity_matrix(cosine_similarity_matrix, cosine_similarity_path, doc_ids)
+    try:
+        transformer = TransformerEmbeddings(
+            model_name='minilm',
+            batch_size=32,
+            show_progress=True
+        )
+        
+        transformer_embeddings = transformer.generate_embeddings(texts, normalize=True)
+        print(f"Generated transformer embeddings: {transformer_embeddings.shape}")
+        
+        transformer_model_path = os.path.join(MODELS_DIR, "scam_transformer_model")
+        transformer.save_model(transformer_model_path)
+        
+        transformer_embeddings_path = os.path.join(RESULTS_DIR, "scam_transformer_embeddings.csv")
+        transformer.save_embeddings(transformer_embeddings, transformer_embeddings_path, doc_ids)
+        
+        transformer_similarity_matrix = transformer.compute_similarity_matrix(transformer_embeddings)
+        transformer_similarity_path = os.path.join(RESULTS_DIR, "scam_transformer_similarity_matrix.csv")
+        transformer.save_similarity_matrix(
+            transformer_similarity_matrix,
+            transformer_similarity_path,
+            doc_ids
+        )
+        
+    except ImportError as e:
+        print(f"ERROR: Transformer embeddings required but not available: {e}")
+        print("Please install sentence-transformers: pip install sentence-transformers")
+        return
+    except Exception as e:
+        print(f"ERROR generating transformer embeddings: {e}")
+        print("Transformer embeddings are required for this pipeline.")
+        return
     
     print()
     
-    print("STEP 6: Computing Jaccard Similarity Matrix")
+    print("STEP 4: Computing Jaccard Similarity Matrix (for weighted combination)")
     print("-" * 60)
     
     similarity_measures = SimilarityMeasures()
-    
-    # Use preprocessed text for Jaccard similarity
-    jaccard_texts = df_processed[training_text_column].fillna('').astype(str).tolist()
-    
     jaccard_similarity_matrix = similarity_measures.compute_jaccard_similarity_matrix(
-        jaccard_texts, 
+        texts, 
         use_noun_phrases=True
     )
     print(f"Computed Jaccard similarity matrix: {jaccard_similarity_matrix.shape}")
@@ -156,56 +137,40 @@ def main():
         doc_ids
     )
     
-    print()
+    doc2vec = None
+    cosine_similarity_matrix = None
+    cosine_similarity_path = None
+    doc2vec_available = False
     
-    print("STEP 7: Generating Transformer Embeddings")
+    print()
+    print("STEP 5: Optional - Generating Doc2Vec Embeddings (for comparison)")
     print("-" * 60)
     
-    # Initialize variables for transformer embeddings
-    transformer_available = False
-    transformer_similarity_matrix = None
-    transformer_embeddings = None
-    transformer_embeddings_path = None
-    transformer_similarity_path = None
-    comparison_path = None
-    
     try:
-        # Initialize transformer model (using MiniLM for faster processing)
-        # Can be changed to 'mpnet' for better quality but slower processing
-        transformer = TransformerEmbeddings(
-            model_name='minilm',
-            batch_size=32,
-            show_progress=True
+        doc2vec = Doc2VecModel(
+            vector_size=50,
+            min_count=2,
+            epochs=100,
+            dm=1,
+            alpha=0.025,
+            min_alpha=0.00025
         )
         
-        # Use preprocessed text for transformer embeddings
-        transformer_texts = df_processed[training_text_column].fillna('').astype(str).tolist()
+        tagged_docs = doc2vec.create_tagged_documents(texts, doc_ids)
+        doc2vec.train(tagged_docs, verbose=True)
         
-        # Generate transformer embeddings
-        transformer_embeddings = transformer.generate_embeddings(transformer_texts, normalize=True)
-        print(f"Generated transformer embeddings: {transformer_embeddings.shape}")
+        model_path = os.path.join(MODELS_DIR, "scam_doc2vec_model.model")
+        doc2vec.save_model(model_path)
         
-        # Save transformer embeddings
-        transformer_embeddings_path = os.path.join(RESULTS_DIR, "scam_transformer_embeddings.csv")
-        transformer.save_embeddings(transformer_embeddings, transformer_embeddings_path, doc_ids)
+        doc2vec_embeddings = doc2vec.generate_embeddings()
+        cosine_similarity_matrix = doc2vec.compute_similarity_matrix(doc2vec_embeddings)
+        cosine_similarity_path = os.path.join(RESULTS_DIR, "scam_cosine_similarity_matrix.csv")
+        doc2vec.save_similarity_matrix(cosine_similarity_matrix, cosine_similarity_path, doc_ids)
         
-        # Compute transformer similarity matrix
-        transformer_similarity_matrix = transformer.compute_similarity_matrix(transformer_embeddings)
+        doc2vec_available = True
+        print("Doc2Vec embeddings generated for comparison")
         
-        # Save transformer similarity matrix
-        transformer_similarity_path = os.path.join(RESULTS_DIR, "scam_transformer_similarity_matrix.csv")
-        transformer.save_similarity_matrix(
-            transformer_similarity_matrix,
-            transformer_similarity_path,
-            doc_ids
-        )
-        
-        print()
-        
-        print("STEP 7b: Comparing Embedding Methods")
-        print("-" * 60)
-        
-        # Compare all three methods
+        print("\nComparing embedding methods...")
         comparison = EmbeddingComparison()
         comparison_df = comparison.compare_similarity_matrices(
             transformer_similarity_matrix,
@@ -214,64 +179,38 @@ def main():
             doc_ids
         )
         
-        # Save comparison results
         comparison_path = os.path.join(RESULTS_DIR, "scam_embedding_comparison.csv")
         comparison.save_comparison_results(comparison_df, comparison_path)
         
-        # Find agreement pairs (documents that all three methods agree are similar)
-        print("\nFinding high-agreement document pairs...")
-        agreement_pairs = comparison.find_agreement_pairs(
-            transformer_similarity_matrix,
-            cosine_similarity_matrix,
-            jaccard_similarity_matrix,
-            doc_ids,
-            threshold=0.7,
-            top_n=20
-        )
-        
-        if len(agreement_pairs) > 0:
-            agreement_path = os.path.join(RESULTS_DIR, "scam_agreement_pairs.csv")
-            agreement_pairs.to_csv(agreement_path, index=False)
-            print(f"Agreement pairs saved to {agreement_path}")
-        
-        transformer_available = True
-        
-    except ImportError as e:
-        print(f"Warning: Transformer embeddings not available: {e}")
-        print("Skipping transformer embeddings step. Install sentence-transformers to enable.")
-        transformer_available = False
-        transformer_similarity_matrix = None
-        transformer_embeddings = None
     except Exception as e:
-        print(f"Error generating transformer embeddings: {e}")
-        print("Continuing with other methods...")
-        transformer_available = False
-        transformer_similarity_matrix = None
-        transformer_embeddings = None
+        print(f"Note: Doc2Vec optional step skipped: {e}")
+        doc2vec_available = False
     
     print()
     
-    print("STEP 8: Clustering Similar Scams")
+    print()
+    
+    print("STEP 6: Clustering Similar Scams (Using Similarity-Based Clustering)")
     print("-" * 60)
     
     clustering = ScamClustering()
     
-    # Cluster using similarity thresholds
-    cluster_df = clustering.cluster_by_similarity_threshold(
-        cosine_similarity_matrix,
-        jaccard_similarity_matrix,
-        doc_ids,
-        cosine_threshold=0.7,
-        jaccard_threshold=0.3,
+    print("Using similarity graph-based clustering (cosine + jaccard thresholds)...")
+    cluster_df = clustering.cluster_using_similarity_graph(
+        similarity_matrix=transformer_similarity_matrix,
+        doc_ids=doc_ids,
+        threshold=0.7,
+        jaccard_matrix=jaccard_similarity_matrix,
+        jaccard_threshold=0.05,
         min_cluster_size=2
     )
+    print(f"Similarity-based clustering complete. Found {cluster_df['cluster_id'].nunique()} clusters")
     
     cluster_path = os.path.join(RESULTS_DIR, "scam_clusters.csv")
     cluster_df.to_csv(cluster_path, index=False)
     print(f"Clustering complete. Found {cluster_df['cluster_id'].nunique()} clusters")
     print(f"Cluster assignments saved to {cluster_path}")
     
-    # Get cluster statistics
     cluster_stats = clustering.get_cluster_statistics(cluster_df)
     cluster_stats_path = os.path.join(RESULTS_DIR, "scam_cluster_statistics.csv")
     cluster_stats.to_csv(cluster_stats_path, index=False)
@@ -279,14 +218,13 @@ def main():
     
     print()
     
-    print("STEP 9: Extracting Key Terms from Similar Scams")
+    print("STEP 7: Extracting Key Terms from Similar Scams")
     print("-" * 60)
     
     tfidf_extractor = TFIDFExtractor(
         additional_stopwords=['ask', 'said', 'say', 'asked', 'claimed', 'told', 'got', 'tell', 'get']
     )
     
-    # Process each cluster to extract key terms
     key_terms_results = []
     
     for cluster_id in cluster_df['cluster_id'].unique():
@@ -295,13 +233,11 @@ def main():
         if len(cluster_members) < 2:
             continue
         
-        # Get texts for cluster members
         cluster_texts = []
         for doc_id in cluster_members:
             doc_idx = doc_ids.index(doc_id)
-            cluster_texts.append(jaccard_texts[doc_idx])
+            cluster_texts.append(texts[doc_idx])
         
-        # Extract key terms
         key_terms = tfidf_extractor.extract_key_terms_from_similar_scams(
             cluster_texts,
             n_min=1,
@@ -325,7 +261,7 @@ def main():
     
     print()
     
-    print("STEP 10: Generating Crime Scripts (Temporal Ordering)")
+    print("STEP 8: Generating Crime Scripts (Temporal Ordering)")
     print("-" * 60)
     
     temporal_ordering = TemporalOrdering()
@@ -339,19 +275,16 @@ def main():
             if len(cluster_members) < 2:
                 continue
             
-            # Get texts for cluster members
             cluster_texts = []
             for doc_id in cluster_members:
                 doc_idx = doc_ids.index(doc_id)
-                cluster_texts.append(jaccard_texts[doc_idx])
+                cluster_texts.append(texts[doc_idx])
             
-            # Get key terms for this cluster
             cluster_key_terms = all_key_terms[all_key_terms['cluster_id'] == cluster_id].copy()
             
             if len(cluster_key_terms) == 0:
                 continue
             
-            # Generate consensus crime script
             crime_script = temporal_ordering.generate_consensus_script(
                 cluster_texts,
                 cluster_key_terms,
@@ -368,20 +301,51 @@ def main():
         print(f"Generated crime scripts for {len(crime_scripts)} clusters")
         print(f"Crime scripts saved to {crime_scripts_path}")
         
-        # Generate visualizations for top clusters
         if all_key_terms is not None:
-            print("\nGenerating sequence visualizations for top clusters...")
+            print("\nGenerating sequence visualizations for a medium-sized cluster...")
             os.makedirs(os.path.join(RESULTS_DIR, "visualizations"), exist_ok=True)
             viz_dir = os.path.join(RESULTS_DIR, "visualizations")
             
-            # Get top clusters by size
-            top_clusters = cluster_stats.head(10)['cluster_id'].tolist()
+            # Pick a "medium-sized" (near-median) cluster that is eligible for visualization.
+            # Eligibility criteria:
+            # - Has a generated crime script (present in all_crime_scripts)
+            # - Has key terms with a 'next_term' column (required for visualize_sequence_graph)
+            eligible_cluster_stats = cluster_stats.copy()
+            script_cluster_ids = set(all_crime_scripts['cluster_id'].unique().tolist())
+            eligible_cluster_stats = eligible_cluster_stats[
+                eligible_cluster_stats['cluster_id'].isin(script_cluster_ids)
+            ]
+
+            if 'next_term' in all_key_terms.columns:
+                # Prefer clusters that have at least one non-null next_term
+                key_term_cluster_ids = set(
+                    all_key_terms.loc[all_key_terms['next_term'].notna(), 'cluster_id']
+                    .unique()
+                    .tolist()
+                )
+                eligible_cluster_stats = eligible_cluster_stats[
+                    eligible_cluster_stats['cluster_id'].isin(key_term_cluster_ids)
+                ]
+
+            if len(eligible_cluster_stats) == 0:
+                # Fallback: use any cluster with scripts, closest to median size in cluster_stats
+                eligible_cluster_stats = cluster_stats[
+                    cluster_stats['cluster_id'].isin(script_cluster_ids)
+                ].copy()
+
+            if len(eligible_cluster_stats) == 0:
+                top_clusters = []
+            else:
+                median_size = eligible_cluster_stats['num_documents'].median()
+                chosen_idx = (eligible_cluster_stats['num_documents'] - median_size).abs().idxmin()
+                chosen_cluster_id = int(eligible_cluster_stats.loc[chosen_idx, 'cluster_id'])
+                top_clusters = [chosen_cluster_id]
             viz_count = 0
             
-            for cluster_id in top_clusters:
+            for idx, cluster_id in enumerate(top_clusters, 1):
+                print(f"  Processing cluster {cluster_id} ({idx}/{len(top_clusters)})...", end=' ')
                 cluster_scripts = all_crime_scripts[all_crime_scripts['cluster_id'] == cluster_id]
                 if len(cluster_scripts) > 0:
-                    # Get key terms for this cluster to create sequence graph
                     cluster_key_terms = all_key_terms[all_key_terms['cluster_id'] == cluster_id].copy()
                     if len(cluster_key_terms) > 0 and 'next_term' in cluster_key_terms.columns:
                         try:
@@ -392,11 +356,15 @@ def main():
                                 next_term_column='next_term',
                                 weight_column='tfidf_score',
                                 figsize=(14, 10),
-                                save_path=viz_path
+                                save_path=viz_path,
+                                max_terms=25
                             )
                             viz_count += 1
+                            print("✓")
                         except Exception as e:
-                            print(f"  - Warning: Could not generate visualization for cluster {cluster_id}: {e}")
+                            print(f"✗ Error: {str(e)[:50]}")
+                else:
+                    print("- (skipped, no scripts)")
             
             if viz_count > 0:
                 print(f"Generated {viz_count} sequence visualizations")
@@ -406,25 +374,25 @@ def main():
     
     print()
     
-    print("STEP 11: Summary Statistics")
+    print("STEP 9: Summary Statistics")
     print("-" * 60)
     
-    np.fill_diagonal(cosine_similarity_matrix, -1)
-    max_sim_idx = np.unravel_index(np.argmax(cosine_similarity_matrix), cosine_similarity_matrix.shape)
-    max_similarity = cosine_similarity_matrix[max_sim_idx]
+    np.fill_diagonal(transformer_similarity_matrix, -1)
+    max_sim_idx = np.unravel_index(np.argmax(transformer_similarity_matrix), transformer_similarity_matrix.shape)
+    max_similarity = transformer_similarity_matrix[max_sim_idx]
     
-    print(f"Most similar document pair (Cosine):")
+    print(f"Most similar document pair (Transformer):")
     print(f"  - Document 1 ID: {doc_ids[max_sim_idx[0]]}")
     print(f"  - Document 2 ID: {doc_ids[max_sim_idx[1]]}")
     print(f"  - Similarity score: {max_similarity:.4f}")
     
-    np.fill_diagonal(cosine_similarity_matrix, 1.0)
+    np.fill_diagonal(transformer_similarity_matrix, 1.0)
     
-    print(f"\nCosine similarity matrix statistics:")
-    print(f"  - Mean: {cosine_similarity_matrix.mean():.4f}")
-    print(f"  - Std: {cosine_similarity_matrix.std():.4f}")
-    print(f"  - Min: {cosine_similarity_matrix.min():.4f}")
-    print(f"  - Max: {cosine_similarity_matrix.max():.4f}")
+    print(f"\nTransformer similarity matrix statistics:")
+    print(f"  - Mean: {transformer_similarity_matrix.mean():.4f}")
+    print(f"  - Std: {transformer_similarity_matrix.std():.4f}")
+    print(f"  - Min: {transformer_similarity_matrix.min():.4f}")
+    print(f"  - Max: {transformer_similarity_matrix.max():.4f}")
     
     print(f"\nJaccard similarity matrix statistics:")
     print(f"  - Mean: {jaccard_similarity_matrix.mean():.4f}")
@@ -432,12 +400,12 @@ def main():
     print(f"  - Min: {jaccard_similarity_matrix.min():.4f}")
     print(f"  - Max: {jaccard_similarity_matrix.max():.4f}")
     
-    if transformer_available and transformer_similarity_matrix is not None:
-        print(f"\nTransformer similarity matrix statistics:")
-        print(f"  - Mean: {transformer_similarity_matrix.mean():.4f}")
-        print(f"  - Std: {transformer_similarity_matrix.std():.4f}")
-        print(f"  - Min: {transformer_similarity_matrix.min():.4f}")
-        print(f"  - Max: {transformer_similarity_matrix.max():.4f}")
+    if doc2vec_available and cosine_similarity_matrix is not None:
+        print(f"\nDoc2Vec Cosine similarity matrix statistics (for comparison):")
+        print(f"  - Mean: {cosine_similarity_matrix.mean():.4f}")
+        print(f"  - Std: {cosine_similarity_matrix.std():.4f}")
+        print(f"  - Min: {cosine_similarity_matrix.min():.4f}")
+        print(f"  - Max: {cosine_similarity_matrix.max():.4f}")
     
     print(f"\nClustering statistics:")
     print(f"  - Total clusters: {cluster_df['cluster_id'].nunique()}")
@@ -450,13 +418,13 @@ def main():
     print("=" * 60)
     print(f"\nOutput files:")
     print(f"  - Preprocessed data: {preprocessed_path}")
-    print(f"  - Trained model: {model_path}")
-    print(f"  - Embeddings: {embeddings_path}")
-    print(f"  - Cosine similarity matrix: {cosine_similarity_path}")
+    print(f"  - Transformer model: {transformer_model_path}")
+    print(f"  - Transformer embeddings: {transformer_embeddings_path}")
+    print(f"  - Transformer similarity matrix: {transformer_similarity_path}")
     print(f"  - Jaccard similarity matrix: {jaccard_similarity_path}")
-    if transformer_available:
-        print(f"  - Transformer embeddings: {transformer_embeddings_path}")
-        print(f"  - Transformer similarity matrix: {transformer_similarity_path}")
+    if doc2vec_available:
+        print(f"  - Doc2Vec model: {model_path}")
+        print(f"  - Doc2Vec cosine similarity matrix: {cosine_similarity_path}")
         print(f"  - Embedding comparison: {comparison_path}")
     print(f"  - Cluster assignments: {cluster_path}")
     print(f"  - Cluster statistics: {cluster_stats_path}")
