@@ -1,8 +1,3 @@
-"""
-Doc2Vec Model Implementation
-Handles training Doc2Vec models, generating embeddings, and computing similarity matrices
-"""
-
 import pandas as pd
 import numpy as np
 from gensim.models.doc2vec import Doc2Vec, TaggedDocument
@@ -15,23 +10,10 @@ warnings.filterwarnings('ignore')
 
 
 class Doc2VecModel:
-    """Class for training and using Doc2Vec models"""
     
     def __init__(self, vector_size: int = 50, min_count: int = 2, 
                  epochs: int = 100, dm: int = 1, alpha: float = 0.025, 
                  min_alpha: float = 0.00025):
-        """
-        Initialize Doc2Vec model parameters
-        
-        Args:
-            vector_size: Dimensionality of the feature vectors
-            min_count: Ignores all words with total frequency lower than this
-            epochs: Number of iterations (epochs) over the corpus
-            dm: Defines the training algorithm. If dm=1, 'distributed memory' (PV-DM) is used.
-                If dm=0, 'distributed bag of words' (PV-DBOW) is used.
-            alpha: The initial learning rate
-            min_alpha: Learning rate will linearly drop to min_alpha as training progresses
-        """
         self.vector_size = vector_size
         self.min_count = min_count
         self.epochs = epochs
@@ -42,16 +24,6 @@ class Doc2VecModel:
         self.corpus = None
     
     def create_tagged_documents(self, texts: List[str], ids: List = None) -> List[TaggedDocument]:
-        """
-        Create TaggedDocument objects for Doc2Vec training
-        
-        Args:
-            texts: List of preprocessed text strings
-            ids: List of document IDs (optional, uses index if not provided)
-        
-        Returns:
-            List of TaggedDocument objects
-        """
         if ids is None:
             ids = list(range(len(texts)))
         
@@ -63,13 +35,6 @@ class Doc2VecModel:
         return tagged_docs
     
     def train(self, corpus: List[TaggedDocument], verbose: bool = True):
-        """
-        Train Doc2Vec model on the provided corpus
-        
-        Args:
-            corpus: List of TaggedDocument objects
-            verbose: Whether to print training progress
-        """
         if verbose:
             print(f"Training Doc2Vec model...")
             print(f"  Vector size: {self.vector_size}")
@@ -104,15 +69,6 @@ class Doc2VecModel:
             print("Training complete!")
     
     def generate_embeddings(self, texts: List[str] = None) -> np.ndarray:
-        """
-        Generate embeddings for documents
-        
-        Args:
-            texts: List of preprocessed text strings. If None, uses training corpus
-        
-        Returns:
-            Numpy array of embeddings (n_documents x vector_size)
-        """
         if self.model is None:
             raise ValueError("Model not trained. Call train() first.")
         
@@ -132,15 +88,6 @@ class Doc2VecModel:
             return np.array(embeddings)
     
     def compute_similarity_matrix(self, embeddings: np.ndarray = None) -> np.ndarray:
-        """
-        Compute cosine similarity matrix for document embeddings
-        
-        Args:
-            embeddings: Numpy array of embeddings. If None, uses training corpus embeddings
-        
-        Returns:
-            Numpy array of similarity scores (n_documents x n_documents)
-        """
         if embeddings is None:
             embeddings = self.generate_embeddings()
         
@@ -148,28 +95,7 @@ class Doc2VecModel:
         
         return similarity_matrix
     
-    def get_most_similar_documents(self, doc_id: int, topn: int = 10) -> List[Tuple[int, float]]:
-        """
-        Get most similar documents to a given document
-        
-        Args:
-            doc_id: Document ID
-            topn: Number of similar documents to return
-        
-        Returns:
-            List of tuples (document_id, similarity_score)
-        """
-        if self.model is None:
-            raise ValueError("Model not trained. Call train() first.")
-        
-        doc_vector = self.model.dv[doc_id]
-        
-        similar_docs = self.model.dv.most_similar([doc_vector], topn=topn+1)
-        
-        return [(sim_doc_id, score) for sim_doc_id, score in similar_docs if sim_doc_id != doc_id][:topn]
-    
     def save_model(self, filepath: str):
-        """Save trained model to disk"""
         if self.model is None:
             raise ValueError("No model to save. Train the model first.")
         
@@ -179,26 +105,16 @@ class Doc2VecModel:
         print(f"Model saved to {filepath}")
     
     def load_model(self, filepath: str):
-        """Load trained model from disk"""
         self.model = Doc2Vec.load(filepath)
         print(f"Model loaded from {filepath}")
     
     def save_embeddings(self, embeddings: np.ndarray, filepath: str):
-        """Save embeddings to CSV file"""
         df = pd.DataFrame(embeddings)
         df.to_csv(filepath, index=False)
         print(f"Embeddings saved to {filepath}")
     
     def save_similarity_matrix(self, similarity_matrix: np.ndarray, 
                               filepath: str, doc_ids: List = None):
-        """
-        Save similarity matrix to CSV file
-        
-        Args:
-            similarity_matrix: Numpy array of similarity scores
-            filepath: Path to save CSV file
-            doc_ids: List of document IDs for row/column labels (optional)
-        """
         if doc_ids is not None:
             df = pd.DataFrame(similarity_matrix, index=doc_ids, columns=doc_ids)
         else:
@@ -206,4 +122,3 @@ class Doc2VecModel:
         
         df.to_csv(filepath, index=(doc_ids is not None))
         print(f"Similarity matrix saved to {filepath}")
-
