@@ -302,11 +302,11 @@ def main():
         print(f"Crime scripts saved to {crime_scripts_path}")
         
         if all_key_terms is not None:
-            print("\nGenerating sequence visualizations for top 5 clusters...")
+            print("\nGenerating sequence visualizations for top cluster...")
             os.makedirs(os.path.join(RESULTS_DIR, "visualizations"), exist_ok=True)
             viz_dir = os.path.join(RESULTS_DIR, "visualizations")
             
-            top_clusters = cluster_stats.head(5)['cluster_id'].tolist()
+            top_clusters = cluster_stats.head(1)['cluster_id'].tolist()
             viz_count = 0
             
             for idx, cluster_id in enumerate(top_clusters, 1):
