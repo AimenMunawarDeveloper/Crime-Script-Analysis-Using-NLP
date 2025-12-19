@@ -1,23 +1,3 @@
-"""
-secure_reports.py
-
-Implements a manual "PKI + signed & encrypted reports" demo layer.
-
-Each report is packaged as JSON (one per line):
-{
-  "report_id": "...",
-  "ciphertext": "...",   # base64(XOR(report_bytes, K))
-  "enc_key": "...",      # base64(RSA_encrypt_int(int_from_bytes(K), server_pub))
-  "signature": "...",    # base64(RSA_sign_hash(hash(report), sender_priv))
-  "public_key": { "n": "...", "e": "..." }   # base64-encoded ints (simulated certificate)
-}
-
-Receiver (analysis server):
-- decrypt enc_key with server private key -> K
-- XOR-decrypt ciphertext -> plaintext report
-- recompute hash and verify signature using sender public key
-"""
-
 from __future__ import annotations
 
 import json
@@ -55,7 +35,6 @@ def deserialize_public_key(d: Dict[str, str]) -> RSAPublicKey:
 
 
 def serialize_private_key(priv: RSAPrivateKey) -> Dict[str, str]:
-    # Store CRT params when present (more complex RSA private key).
     out: Dict[str, str] = {"n": int_to_b64(priv.n), "d": int_to_b64(priv.d)}
     if priv.p is not None:
         out["p"] = int_to_b64(priv.p)
@@ -71,7 +50,6 @@ def serialize_private_key(priv: RSAPrivateKey) -> Dict[str, str]:
 
 
 def deserialize_private_key(d: Dict[str, str]) -> RSAPrivateKey:
-    # v2-only: require CRT parameters (p, q, dp, dq, qinv) for the "advanced RSA" path.
     required = ("n", "d", "p", "q", "dp", "dq", "qinv")
     missing = [k for k in required if k not in d]
     if missing:
@@ -97,21 +75,12 @@ def create_package(
     crime_type: str = "vishing",
 ) -> Dict[str, Any]:
     plaintext = canonicalize_text(report_text)
-    # Sign a payload that's relevant to crime-script analysis:
-    # bind the report to its ID + crime_type, not just raw text.
     h = hash_vishing_payload(report_id=report_id, report_text=plaintext, crime_type=crime_type)
     sig = rsa_sign_hash(h, sender_priv)
 
     k = random_key_bytes(symmetric_key_len)
     ct = xor_stream(plaintext.encode("utf-8", errors="replace"), k)
 
-    # --- Use-case-specific RSA "key capsule" (vishing context binding) ---
-    # Instead of RSA-encrypting raw K, we encrypt a structured capsule:
-    #   [8-byte tag][1-byte key_len][key_bytes][random padding...]
-    #
-    # tag = djb2_64(f"{crime_type}|{report_id}") as 8 bytes
-    # This binds the RSA-encrypted key to this *specific* report identity/context.
-    # It prevents swapping enc_key between packages (a realistic dataset tampering attack).
     tag_int = djb2_64(f"{crime_type}|{str(report_id)}".encode("utf-8", errors="replace"))
     tag = int_to_bytes(tag_int, 8)
     klen = len(k)
@@ -120,12 +89,9 @@ def create_package(
     header = tag + bytes([klen]) + k
 
     modulus_len = max(1, (server_pub.n.bit_length() + 7) // 8)
-    # We'll prepend a 0x00 byte to guarantee capsule_int < n.
-    # That means usable space is (modulus_len - 1) bytes.
     if len(header) >= (modulus_len - 1):
         raise ValueError("server RSA modulus too small for key capsule")
 
-    # Add random padding to make the capsule look less repetitive (still manual, not OAEP).
     pad_len = (modulus_len - 1) - len(header)
     padding = secrets.token_bytes(pad_len) if pad_len > 0 else b""
     capsule = b"\x00" + header + padding
@@ -140,7 +106,6 @@ def create_package(
         "ciphertext": b64e(ct),
         "enc_key": int_to_b64(enc_k),
         "signature": int_to_b64(sig),
-        # Keep key_len for transparency/debug (and backward compatibility with earlier v2 files).
         "key_len": int(len(k)),
         "public_key": serialize_public_key(sender_pub),
     }
@@ -150,10 +115,6 @@ def open_package(
     pkg: Dict[str, Any],
     server_priv: RSAPrivateKey,
 ) -> Tuple[str, str, bool]:
-    """
-    Returns (report_id, plaintext, verified).
-    If decrypt fails, returns verified=False and plaintext="".
-    """
     report_id = str(pkg.get("report_id", ""))
     try:
         if int(pkg.get("version", 0)) != 2:
@@ -164,14 +125,12 @@ def open_package(
         enc_k = b64_to_int(pkg["enc_key"])
         sig = b64_to_int(pkg["signature"])
 
-        # RSA-decrypt the key capsule and extract the XOR key.
         capsule_int = rsa_decrypt_int(enc_k, server_priv)
         modulus_len = max(1, (server_priv.n.bit_length() + 7) // 8)
         capsule = int_to_bytes(capsule_int, modulus_len)
 
         tag_expected_int = djb2_64(f"{crime_type}|{str(report_id)}".encode("utf-8", errors="replace"))
         tag_expected = int_to_bytes(tag_expected_int, 8)
-        # capsule layout: [0x00][8-byte tag][1-byte key_len][key...][padding...]
         if capsule[:1] != b"\x00":
             return report_id, "", False
         tag_got = capsule[1:9]
@@ -232,10 +191,6 @@ def save_keypair_json(pub: RSAPublicKey, priv: RSAPrivateKey, pub_path: str, pri
     write_text_file(priv_path, json.dumps(serialize_private_key(priv), indent=2))
 
 
-def load_public_key_json(path: str) -> RSAPublicKey:
-    return deserialize_public_key(json.loads(read_text_file(path)))
-
-
 def load_private_key_json(path: str) -> RSAPrivateKey:
     return deserialize_private_key(json.loads(read_text_file(path)))
 
@@ -252,10 +207,6 @@ def decrypt_and_verify_packages(
     packages: Iterable[Dict[str, Any]],
     server_priv: RSAPrivateKey,
 ) -> Tuple[List[Dict[str, Any]], int, int]:
-    """
-    Returns (verified_rows, verified_count, total_count).
-    Each verified row has: {"report_id": str, "plaintext": str}
-    """
     verified_rows: List[Dict[str, Any]] = []
     total = 0
     verified = 0
@@ -269,13 +220,6 @@ def decrypt_and_verify_packages(
 
 
 if __name__ == "__main__":
-    # Simple demo CLI:
-    # python src/secure_reports.py
-    #   - Generates server + sender keys
-    #   - Packages the raw dataset into Data Set/secure_reports.jsonl
-    #   - Writes keys into Data Set/
-    #
-    # This keeps the main NLP pipeline unchanged unless secure reports are present.
     import argparse
     import pandas as pd
 

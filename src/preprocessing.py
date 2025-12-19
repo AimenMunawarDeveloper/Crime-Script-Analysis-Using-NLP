@@ -289,9 +289,6 @@ class TextPreprocessor:
         
         return text
     
-    def tokenize(self, text: str) -> List[str]:
-        return word_tokenize(text.lower())
-    
     def load_dataset(self, filepath: str, text_column: str = 'incident_description', 
                     id_column: str = None) -> pd.DataFrame:
         try:
