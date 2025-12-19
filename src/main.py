@@ -9,8 +9,6 @@ from secure_reports import (
 
 
 def main():
-    # Heavy NLP imports are deferred so the secure-report gate can run even if
-    # the current Python environment lacks spaCy / transformer deps.
     from preprocessing import TextPreprocessor
     from doc2vec_model import Doc2VecModel
     from similarity_measures import SimilarityMeasures
@@ -338,10 +336,6 @@ def main():
             os.makedirs(os.path.join(RESULTS_DIR, "visualizations"), exist_ok=True)
             viz_dir = os.path.join(RESULTS_DIR, "visualizations")
             
-            # Pick a "medium-sized" (near-median) cluster that is eligible for visualization.
-            # Eligibility criteria:
-            # - Has a generated crime script (present in all_crime_scripts)
-            # - Has key terms with a 'next_term' column (required for visualize_sequence_graph)
             eligible_cluster_stats = cluster_stats.copy()
             script_cluster_ids = set(all_crime_scripts['cluster_id'].unique().tolist())
             eligible_cluster_stats = eligible_cluster_stats[
@@ -349,7 +343,6 @@ def main():
             ]
 
             if 'next_term' in all_key_terms.columns:
-                # Prefer clusters that have at least one non-null next_term
                 key_term_cluster_ids = set(
                     all_key_terms.loc[all_key_terms['next_term'].notna(), 'cluster_id']
                     .unique()
@@ -360,7 +353,6 @@ def main():
                 ]
 
             if len(eligible_cluster_stats) == 0:
-                # Fallback: use any cluster with scripts, closest to median size in cluster_stats
                 eligible_cluster_stats = cluster_stats[
                     cluster_stats['cluster_id'].isin(script_cluster_ids)
                 ].copy()
