@@ -3,24 +3,30 @@ from __future__ import annotations
 import json
 import os
 import secrets
+import time
 from typing import Any, Dict, Iterable, Iterator, List, Tuple
 
 from manual_crypto import (
     RSAPrivateKey,
     RSAPublicKey,
+    aes256_cbc_decrypt,
+    aes256_cbc_encrypt,
     b64_to_int,
     canonicalize_text,
+    generate_vishing_iv,
     hash_vishing_payload,
-    djb2_64,
+    hmac_sha256,
     int_to_b64,
     int_to_bytes,
+    oaep_decode,
+    oaep_encode,
     random_key_bytes,
     rsa_decrypt_int,
     rsa_encrypt_int,
     rsa_keygen,
     rsa_sign_hash,
     rsa_verify_hash,
-    xor_stream,
+    sha256_hash,
     b64d,
     b64e,
 )
@@ -71,42 +77,65 @@ def create_package(
     sender_priv: RSAPrivateKey,
     sender_pub: RSAPublicKey,
     server_pub: RSAPublicKey,
-    symmetric_key_len: int = 16,
+    symmetric_key_len: int = 32,
     crime_type: str = "vishing",
 ) -> Dict[str, Any]:
     plaintext = canonicalize_text(report_text)
-    h = hash_vishing_payload(report_id=report_id, report_text=plaintext, crime_type=crime_type)
+    timestamp = int(time.time())
+    
+    h = hash_vishing_payload(
+        report_id=report_id, 
+        report_text=plaintext, 
+        crime_type=crime_type,
+        timestamp=timestamp
+    )
     sig = rsa_sign_hash(h, sender_priv)
 
     k = random_key_bytes(symmetric_key_len)
-    ct = xor_stream(plaintext.encode("utf-8", errors="replace"), k)
+    if len(k) != 32:
+        raise ValueError("AES-256 requires 32-byte key")
+    
+    iv = generate_vishing_iv(report_id=report_id, crime_type=crime_type, timestamp=timestamp)
+    
+    pt_bytes = plaintext.encode("utf-8", errors="replace")
+    ct = aes256_cbc_encrypt(pt_bytes, k, iv)
+    
+    hmac_key_material = k + f"{crime_type}|{report_id}|{timestamp}".encode('utf-8')
+    hmac_key = sha256_hash(hmac_key_material)[:32]
+    hmac_value = hmac_sha256(hmac_key, ct)
 
-    tag_int = djb2_64(f"{crime_type}|{str(report_id)}".encode("utf-8", errors="replace"))
-    tag = int_to_bytes(tag_int, 8)
-    klen = len(k)
-    if not (1 <= klen <= 255):
-        raise ValueError("symmetric key length out of range")
-    header = tag + bytes([klen]) + k
-
+    oaep_label = f"vishing|{crime_type}|{report_id}".encode('utf-8')
+    
+    key_material = iv + k
+    
     modulus_len = max(1, (server_pub.n.bit_length() + 7) // 8)
-    if len(header) >= (modulus_len - 1):
-        raise ValueError("server RSA modulus too small for key capsule")
-
-    pad_len = (modulus_len - 1) - len(header)
-    padding = secrets.token_bytes(pad_len) if pad_len > 0 else b""
-    capsule = b"\x00" + header + padding
-    capsule_int = int.from_bytes(capsule, byteorder="big")
-
-    enc_k = rsa_encrypt_int(capsule_int, server_pub)
+    oaep_overhead = 2 * 32 + 2
+    max_message_len = modulus_len - oaep_overhead
+    if len(key_material) > max_message_len:
+        raise ValueError(
+            f"Key material ({len(key_material)} bytes) too large for RSA modulus "
+            f"({modulus_len} bytes) with OAEP (needs {oaep_overhead} bytes overhead). "
+            f"Maximum message length: {max_message_len} bytes. "
+            f"Consider using larger RSA key size (e.g., --server-bits 1024 or 2048)."
+        )
+    
+    encoded_key = oaep_encode(key_material, oaep_label, server_pub.n.bit_length())
+    encoded_key_int = int.from_bytes(encoded_key, byteorder="big")
+    
+    if encoded_key_int >= server_pub.n:
+        raise ValueError("OAEP encoded key too large for RSA modulus")
+    
+    enc_k = rsa_encrypt_int(encoded_key_int, server_pub)
 
     return {
-        "version": 2,
+        "version": 3,
         "report_id": str(report_id),
         "crime_type": crime_type,
+        "timestamp": timestamp,
         "ciphertext": b64e(ct),
         "enc_key": int_to_b64(enc_k),
         "signature": int_to_b64(sig),
-        "key_len": int(len(k)),
+        "hmac": b64e(hmac_value),
         "public_key": serialize_public_key(sender_pub),
     }
 
@@ -117,38 +146,66 @@ def open_package(
 ) -> Tuple[str, str, bool]:
     report_id = str(pkg.get("report_id", ""))
     try:
-        if int(pkg.get("version", 0)) != 2:
+        version = int(pkg.get("version", 0))
+        if version != 3:
             return report_id, "", False
+        
         sender_pub = deserialize_public_key(pkg["public_key"])
         crime_type = str(pkg.get("crime_type", "vishing"))
         ct = b64d(pkg["ciphertext"])
         enc_k = b64_to_int(pkg["enc_key"])
         sig = b64_to_int(pkg["signature"])
-
+        timestamp = pkg.get("timestamp")
+        
+        if timestamp is None:
+            return report_id, "", False
+        
         capsule_int = rsa_decrypt_int(enc_k, server_priv)
         modulus_len = max(1, (server_priv.n.bit_length() + 7) // 8)
         capsule = int_to_bytes(capsule_int, modulus_len)
-
-        tag_expected_int = djb2_64(f"{crime_type}|{str(report_id)}".encode("utf-8", errors="replace"))
-        tag_expected = int_to_bytes(tag_expected_int, 8)
-        if capsule[:1] != b"\x00":
+        
+        oaep_label = f"vishing|{crime_type}|{report_id}".encode('utf-8')
+        try:
+            key_material = oaep_decode(capsule, oaep_label, server_priv.n.bit_length())
+        except ValueError:
             return report_id, "", False
-        tag_got = capsule[1:9]
-        if tag_got != tag_expected:
+        
+        if len(key_material) < 48:
             return report_id, "", False
-        k_len = capsule[9]
-        if k_len <= 0:
+        
+        iv = key_material[0:16]
+        k = key_material[16:48]
+        
+        if len(k) != 32:
             return report_id, "", False
-        k = capsule[10 : 10 + k_len]
-        if len(k) != k_len:
+        
+        hmac_key_material = k + f"{crime_type}|{report_id}|{timestamp}".encode('utf-8')
+        hmac_key = sha256_hash(hmac_key_material)[:32]
+        
+        hmac_expected = b64d(pkg.get("hmac", ""))
+        if not hmac_expected:
             return report_id, "", False
-
-        pt_bytes = xor_stream(ct, k)
+        
+        hmac_calculated = hmac_sha256(hmac_key, ct)
+        if hmac_calculated != hmac_expected:
+            return report_id, "", False
+        
+        try:
+            pt_bytes = aes256_cbc_decrypt(ct, k, iv)
+        except ValueError:
+            return report_id, "", False
+        
         plaintext = pt_bytes.decode("utf-8", errors="replace")
         plaintext = canonicalize_text(plaintext)
-
-        h = hash_vishing_payload(report_id=report_id, report_text=plaintext, crime_type=crime_type)
+        
+        h = hash_vishing_payload(
+            report_id=report_id, 
+            report_text=plaintext, 
+            crime_type=crime_type,
+            timestamp=timestamp
+        )
         verified = rsa_verify_hash(h, sig, sender_pub)
+        
         return report_id, plaintext, verified
     except Exception:
         return report_id, "", False
@@ -229,8 +286,8 @@ if __name__ == "__main__":
     parser.add_argument("--text-col", default="incident_description", help="Column to package as report text")
     parser.add_argument("--id-col", default="submission_id", help="Column to use as report_id (fallback: row index)")
     parser.add_argument("--limit", type=int, default=200, help="Max rows to package (for speed)")
-    parser.add_argument("--server-bits", type=int, default=256, help="RSA bits for server key")
-    parser.add_argument("--sender-bits", type=int, default=256, help="RSA bits for sender key")
+    parser.add_argument("--server-bits", type=int, default=1024, help="RSA bits for server key (minimum 1024 for OAEP with 48-byte key material)")
+    parser.add_argument("--sender-bits", type=int, default=1024, help="RSA bits for sender key")
     args = parser.parse_args()
 
     script_dir = os.path.dirname(os.path.abspath(__file__))

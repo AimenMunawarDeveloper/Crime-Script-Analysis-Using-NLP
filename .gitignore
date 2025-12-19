@@ -62,6 +62,11 @@ Analysis Results/
 # Data files (uncomment if you don't want to track raw data)
 # Data Set/*.csv
 Data Set/scam_data_preprocessed.csv
+Data Set/secure_reports.jsonl
+Data Set/sender_rsa_private.json
+Data Set/sender_rsa_public.json
+Data Set/server_rsa_private.json
+Data Set/server_rsa_public.json
 
 # Environment variables
 .env
